@@ -1,0 +1,31 @@
+[
+  {
+    "file": "Qwen2.5-3B-Instruct-Q6_K.gguf",
+    "port": 8086,
+    "ctx": 4096,
+    "autoStart": true,
+    "args": "--jinja"
+  },
+  {
+    "file": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+    "port": 8087,
+    "ctx": 4096,
+    "autoStart": true,
+    "mmproj": "mmproj-model-f16.gguf",
+    "args": "--jinja"
+  },
+  {
+    "file": "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
+    "port": 8088,
+    "ctx": 8192,
+    "autoStart": false,
+    "args": "--jinja"
+  },
+  {
+    "file": "Meta-Llama-3.1-8B-Instruct-Q6_K.gguf",
+    "port": 8091,
+    "ctx": 8192,
+    "autoStart": true,
+    "args": "--jinja"
+  }
+]
