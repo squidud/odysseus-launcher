@@ -719,16 +719,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     }
 
     func isReachable() -> Bool {
-        var req = URLRequest(url: targetURL, timeoutInterval: 2)
-        req.httpMethod = "HEAD"
-        var ok = false
-        let sem = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: req) { _, resp, _ in
-            ok = (resp as? HTTPURLResponse) != nil
-            sem.signal()
-        }.resume()
-        sem.wait()
-        return ok
+        // Direct TCP check to 127.0.0.1 — avoids IPv6 fallback issues with URLSession.
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(7860).byteSwapped
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        return withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+            }
+        }
     }
 
     func colimaRunning() -> Bool {
@@ -762,9 +767,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     // Write colima.yaml with system-appropriate values — only when VM doesn't exist yet.
     func configureColima() {
-        // Once Lima has initialized the default VM, CPU/memory can't change — leave it alone.
-        let limaDefault = "\(NSHomeDirectory())/.lima/default"
-        if FileManager.default.fileExists(atPath: limaDefault) { return }
+        // Colima's Lima instance is named "colima", not "default".
+        // Once that directory exists, the VM has been created — CPU/memory can't change.
+        let limaColima = "\(NSHomeDirectory())/.lima/colima"
+        if FileManager.default.fileExists(atPath: limaColima) { return }
 
         let yamlPath = "\(NSHomeDirectory())/.colima/default/colima.yaml"
         guard var yaml = try? String(contentsOfFile: yamlPath, encoding: .utf8) else { return }
