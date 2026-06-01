@@ -86,7 +86,3 @@ The `scripts/` directory contains helper processes started alongside Odysseus:
 **Stuck on startup:** Cold start (Colima off) takes 1-3 minutes. The progress bar advances through each stage. If it times out, the web view loads anyway and retries automatically.
 
 **Models not showing in Odysseus:** Models are registered 15 seconds after startup. Open Settings in Odysseus after that delay. The Configure Odysseus dialog shows live port status.
-
-**503 errors from cloud models (Groq, etc.):** This is a provider-side rate limit or outage, not a launcher issue. Check the provider's status page or wait a minute and retry.
-
-**Image generation fails with Gemini:** Gemini fills its own model name into the image generation tool, which fails. Use a local model as the default to avoid this.
