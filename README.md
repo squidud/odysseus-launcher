@@ -18,17 +18,17 @@ pip3 install diffusers torch transformers accelerate
 
 ## Install
 
-**Option 1 — build from source:**
+**Option 1 — download the pre-built app:**
+
+Download `Odysseus.app.zip` from [Releases](../../releases/latest), unzip, and move to `/Applications`.
+
+**Option 2 — build from source:**
 
 ```sh
 git clone https://github.com/squidud/odysseus-launcher
 cd odysseus-launcher
 ./build.sh
 ```
-
-**Option 2 — download the pre-built app:**
-
-Download `Odysseus.app.zip` from [Releases](../../releases/latest), unzip, and move to `/Applications`.
 
 ## First launch
 
