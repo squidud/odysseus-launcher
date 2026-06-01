@@ -853,7 +853,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             }
         }
         setProgress(40, stage: "Starting Docker containers…")
-        let composeRc = shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 120)
+        // --force-recreate ensures containers are always fresh — prevents stale state
+        // from an interrupted previous shutdown leaving containers in a broken state.
+        let composeRc = shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml",
+                                          "up", "-d", "--force-recreate"], timeout: 120)
         log("docker compose up rc=\(composeRc)")
 
         setProgress(60, stage: "Starting local AI models…")
@@ -1101,20 +1104,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     func applicationWillTerminate(_ note: Notification) {
         stopLlamaServer()
-
-        let stop = Process()
-        stop.executableURL = URL(fileURLWithPath: dockerBin)
-        stop.arguments = ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "down"]
-        stop.environment = childEnv
-        stop.standardOutput = FileHandle.nullDevice; stop.standardError = FileHandle.nullDevice
-        try? stop.run(); stop.waitUntilExit()
-
-        let cs = Process()
-        cs.executableURL = URL(fileURLWithPath: colimaBin)
-        cs.arguments = ["stop"]
-        cs.environment = childEnv
-        cs.standardOutput = FileHandle.nullDevice; cs.standardError = FileHandle.nullDevice
-        try? cs.run(); cs.waitUntilExit()
+        // Stop containers first (keeps Colima alive so Docker socket is valid).
+        // Use a short timeout — macOS may force-kill us before these finish,
+        // which is why startup uses --force-recreate to handle leftover state.
+        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "down"],
+              timeout: 15)
+        shell(colimaBin, ["stop"], timeout: 20)
     }
 }
 
