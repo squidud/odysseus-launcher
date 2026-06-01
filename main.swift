@@ -718,22 +718,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         return p.terminationStatus
     }
 
-    func isReachable() -> Bool {
-        // Direct TCP check to 127.0.0.1 — avoids IPv6 fallback issues with URLSession.
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(7860).byteSwapped
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-        var timeout = timeval(tv_sec: 1, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        return withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
-            }
+    func log(_ msg: String) {
+        let line = "\(Date()): \(msg)\n"
+        if let data = line.data(using: .utf8),
+           let fh = FileHandle(forWritingAtPath: "/tmp/odysseus-launch.log") {
+            fh.seekToEndOfFile(); fh.write(data); fh.closeFile()
+        } else {
+            try? line.write(toFile: "/tmp/odysseus-launch.log",
+                            atomically: false, encoding: .utf8)
         }
+    }
+
+    func isReachable() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        p.arguments = ["-s", "-o", "/dev/null", "-w", "%{http_code}",
+                       "--max-time", "2", "--connect-timeout", "2",
+                       "http://127.0.0.1:7860"]
+        p.environment = childEnv
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError  = FileHandle.nullDevice
+        try? p.run()
+        p.waitUntilExit()
+        let code = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                          encoding: .utf8) ?? "000"
+        let ok = !code.isEmpty && code != "000"
+        log("isReachable → curl HTTP \(code) → \(ok)")
+        return ok
     }
 
     func colimaRunning() -> Bool {
@@ -812,9 +824,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     }
 
     func startAndLoad() {
+        log("startAndLoad begin")
         // Fast path: already up — still ensure local models are running
         setProgress(5, stage: "Checking services…")
         if isReachable() {
+            log("fast path: Odysseus already up")
             startLlamaServer()
             setProgress(100, stage: "Ready")
             Thread.sleep(forTimeInterval: 0.2)
@@ -823,28 +837,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         }
 
         setProgress(10, stage: "Checking Odysseus installation…")
-        if !ensureOdysseus() { return }
+        if !ensureOdysseus() { log("ensureOdysseus failed"); return }
 
         setProgress(18, stage: "Checking Colima VM…")
         configureColima()
-        if !colimaRunning() {
+        let colimaUp = colimaRunning()
+        log("colimaRunning: \(colimaUp)")
+        if !colimaUp {
             setProgress(22, stage: "Starting Colima VM…", detail: "This takes ~20 s on first launch")
             let rc = shell(colimaBin, ["start"], timeout: 180)
+            log("colima start rc=\(rc)")
             if rc != 0 {
                 showError("Failed to start Colima VM.")
                 return
             }
         }
         setProgress(40, stage: "Starting Docker containers…")
-        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 120)
+        let composeRc = shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 120)
+        log("docker compose up rc=\(composeRc)")
 
         setProgress(60, stage: "Starting local AI models…")
         startLlamaServer()
+        log("llama server launched")
 
         // Wait for Odysseus — up to 3 minutes from cold start
         for i in 0..<180 {
             Thread.sleep(forTimeInterval: 1)
             if isReachable() {
+                log("Odysseus ready after \(i)s")
                 setProgress(100, stage: "Ready")
                 Thread.sleep(forTimeInterval: 0.3)
                 DispatchQueue.main.async { self.revealWebView() }
@@ -853,6 +873,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             let pct = 60.0 + Double(i) * (39.0 / 180.0)
             setProgress(pct, stage: "Waiting for Odysseus…", detail: "\(i)s elapsed")
         }
+        log("timed out after 180s — loading anyway")
         // Timed out — show anyway, web view will retry on navigation errors
         DispatchQueue.main.async { self.revealWebView() }
     }

@@ -1,12 +1,12 @@
 # Odysseus Launcher
 
-A native macOS app that bootstraps [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) — a self-hosted local AI assistant. It starts Colima, Docker, and local llama.cpp model servers in the background, then opens the Odysseus web UI in its own window.
+A native macOS app that bootstraps [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus), a self-hosted local AI assistant. It manages Colima, Docker, and local llama.cpp model servers, then opens the Odysseus web UI in its own window.
 
-On first launch, Odysseus is automatically cloned from GitHub.
+On first launch, Odysseus is cloned from GitHub automatically.
 
 ## Requirements
 
-- macOS 13+ (Apple Silicon recommended)
+- macOS 13+ on Apple Silicon
 - [Homebrew](https://brew.sh)
 
 Install dependencies:
@@ -18,7 +18,7 @@ pip3 install diffusers torch transformers accelerate
 
 ## Install
 
-**Option 1 — download the pre-built app:**
+**Option 1 — pre-built app:**
 
 Download `Odysseus.app.zip` from [Releases](../../releases/latest), unzip, and move to `/Applications`.
 
@@ -30,40 +30,63 @@ cd odysseus-launcher
 ./build.sh
 ```
 
+`build.sh` compiles the app, installs it to `/Applications`, and copies the launcher scripts to `~/odysseus/`.
+
 ## First launch
 
 The app will:
-1. Clone Odysseus into `~/odysseus` (if not already there)
-2. Configure Colima with appropriate CPU/RAM for your machine
-3. Start Colima, Docker containers, and local AI model servers
-4. Open the Odysseus UI
 
-This takes 2-4 minutes on first launch. Subsequent launches are faster if services are already running.
+1. Clone Odysseus into `~/odysseus` if it is not already present
+2. Configure Colima with CPU and RAM appropriate for your machine (first time only)
+3. Start Colima and Docker containers
+4. Start local AI model servers
+5. Open the Odysseus UI
 
-## Model configuration
+First launch takes 2-4 minutes. Subsequent launches are fast if services are already running.
 
-Download GGUF models from HuggingFace into `~/odysseus/data/huggingface/hub/` (or use the Odysseus cookbook to download from inside the app).
+## Local models
 
-Use **Odysseus > Configure Odysseus** (Cmd+,) to manage which models auto-load, load/unload individual models, and check for updates. Models are detected automatically and registered as Odysseus endpoints 15 seconds after startup.
+Download GGUF models from HuggingFace into `~/odysseus/data/huggingface/hub/`.
 
-A starter `llama-config.json` is copied to `~/odysseus/` on first install. You do not need to edit it manually.
+Use **Odysseus > Configure Odysseus** (Cmd+,) to manage which models load automatically, load or unload individual models, and check for updates. The dialog shows your system RAM and detects Metal GPU availability.
+
+Models are registered as Odysseus endpoints automatically 15 seconds after startup. All running model servers are detected — no manual configuration required.
+
+A starter `llama-config.json` is written to `~/odysseus/` on first install. Recommended models for Apple Silicon (16 GB+ RAM):
+
+| Role | Model |
+|---|---|
+| Chat / Research | Meta-Llama-3.1-8B-Instruct Q6_K |
+| Utility / Tasks | Qwen2.5-3B-Instruct Q6_K |
+| Vision | Qwen2.5-VL-7B-Instruct Q4_K_M |
+| Coding | Qwen2.5-Coder-7B-Instruct Q4_K_M |
+| Image generation | SDXL-Turbo (via `image-server.py`, Metal GPU) |
 
 ## Scripts
 
-`scripts/` contains the helper processes the launcher starts:
+The `scripts/` directory contains helper processes started alongside Odysseus:
 
 | Script | Purpose |
 |---|---|
-| `llama-server.sh` | Launches llama.cpp model servers |
-| `llama-launcher.py` | Reads llama-config.json, starts models with RAM budget checks |
-| `json-proxy.py` | Strips prose from model JSON responses (port 8089) |
+| `llama-server.sh` | Launches llama.cpp model servers from `llama-config.json` |
+| `llama-launcher.py` | Reads config, checks RAM budget, starts models with Metal GPU |
+| `json-proxy.py` | Strips prose wrapping from model JSON responses (port 8089) |
 | `image-server.py` | SDXL-Turbo image generation on Metal GPU (port 8090) |
-| `register-endpoints.py` | Registers running models as Odysseus endpoints in the DB |
+| `register-endpoints.py` | Registers running model servers as Odysseus endpoints |
 
-## Quit behavior
+## Behavior
 
-Quitting the app stops all local model servers, Docker containers, and the Colima VM.
+- **Quit** — stops all model servers, Docker containers, and Colima
+- **Sleep/wake** — reconnects automatically when the Mac wakes
+- **Config dialog** — Odysseus menu > Configure Odysseus (Cmd+,)
+- **Updates** — Configure Odysseus dialog > Check for Updates
 
-## Sleep/wake
+## Troubleshooting
 
-The app automatically reconnects after the Mac wakes from sleep.
+**Stuck on startup:** Cold start (Colima off) takes 1-3 minutes. The progress bar advances through each stage. If it times out, the web view loads anyway and retries automatically.
+
+**Models not showing in Odysseus:** Models are registered 15 seconds after startup. Open Settings in Odysseus after that delay. The Configure Odysseus dialog shows live port status.
+
+**503 errors from cloud models (Groq, etc.):** This is a provider-side rate limit or outage, not a launcher issue. Check the provider's status page or wait a minute and retry.
+
+**Image generation fails with Gemini:** Gemini fills its own model name into the image generation tool, which fails. Use a local model as the default to avoid this.
