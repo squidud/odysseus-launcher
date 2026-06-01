@@ -812,9 +812,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     }
 
     func startAndLoad() {
-        // Fast path: already up
+        // Fast path: already up — still ensure local models are running
         setProgress(5, stage: "Checking services…")
         if isReachable() {
+            startLlamaServer()
             setProgress(100, stage: "Ready")
             Thread.sleep(forTimeInterval: 0.2)
             DispatchQueue.main.async { self.revealWebView() }
