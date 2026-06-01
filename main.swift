@@ -829,13 +829,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             }
         }
         setProgress(40, stage: "Starting Docker containers…")
-        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 60)
+        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 120)
 
         setProgress(60, stage: "Starting local AI models…")
         startLlamaServer()
 
-        // Wait for Odysseus
-        for i in 0..<60 {
+        // Wait for Odysseus — up to 3 minutes from cold start
+        for i in 0..<180 {
             Thread.sleep(forTimeInterval: 1)
             if isReachable() {
                 setProgress(100, stage: "Ready")
@@ -843,10 +843,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
                 DispatchQueue.main.async { self.revealWebView() }
                 return
             }
-            let pct = 60.0 + Double(i) * (39.0 / 60.0)
+            let pct = 60.0 + Double(i) * (39.0 / 180.0)
             setProgress(pct, stage: "Waiting for Odysseus…", detail: "\(i)s elapsed")
         }
-        // Timed out — try anyway
+        // Timed out — show anyway, web view will retry on navigation errors
         DispatchQueue.main.async { self.revealWebView() }
     }
 

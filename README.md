@@ -42,11 +42,11 @@ This takes 2-4 minutes on first launch. Subsequent launches are faster if servic
 
 ## Model configuration
 
-Download GGUF models from HuggingFace into `~/odysseus/data/huggingface/hub/` (or use the Odysseus cookbook).
+Download GGUF models from HuggingFace into `~/odysseus/data/huggingface/hub/` (or use the Odysseus cookbook to download from inside the app).
 
-Edit `~/odysseus/llama-config.json` to list your models and which ports they run on. A template is at `llama-config.template.json`. Use **Odysseus > Configure Odysseus** in the menu bar to manage models without editing JSON.
+Use **Odysseus > Configure Odysseus** (Cmd+,) to manage which models auto-load, load/unload individual models, and check for updates. Models are detected automatically and registered as Odysseus endpoints 15 seconds after startup.
 
-Models are registered automatically as Odysseus endpoints 15 seconds after startup.
+A starter `llama-config.json` is copied to `~/odysseus/` on first install. You do not need to edit it manually.
 
 ## Scripts
 
