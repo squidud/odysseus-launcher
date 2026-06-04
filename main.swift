@@ -759,6 +759,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         return p.terminationStatus == 0
     }
 
+    // Verify Docker socket is actually connectable, not just a stale file.
+    // Colima's SSH port forwarding can die while the VM stays "running".
+    func dockerConnectable() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: dockerBin)
+        p.arguments = ["info"]
+        p.environment = childEnv
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError  = FileHandle.nullDevice
+        try? p.run()
+        let deadline = Date(timeIntervalSinceNow: 4)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+        if p.isRunning { p.terminate(); return false }
+        return p.terminationStatus == 0
+    }
+
+    func waitForDocker(seconds: Int = 15) -> Bool {
+        for _ in 0..<seconds {
+            if dockerConnectable() { return true }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        return false
+    }
+
     // MARK: Startup sequence
 
     // Detect system RAM in GB using sysctl
@@ -843,7 +867,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         configureColima()
         let colimaUp = colimaRunning()
         log("colimaRunning: \(colimaUp)")
-        if !colimaUp {
+
+        // If Colima says it's running but Docker socket is stale (SSH forwarding died),
+        // stop and restart to re-establish the tunnel.
+        if colimaUp && !dockerConnectable() {
+            log("Colima running but Docker socket stale — restarting")
+            setProgress(20, stage: "Reconnecting Colima…")
+            shell(colimaBin, ["stop"], timeout: 25)
+            Thread.sleep(forTimeInterval: 2)
+        }
+
+        if !colimaRunning() {
             setProgress(22, stage: "Starting Colima VM…", detail: "This takes ~20 s on first launch")
             let rc = shell(colimaBin, ["start"], timeout: 180)
             log("colima start rc=\(rc)")
@@ -852,10 +886,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
                 return
             }
         }
+
+        // Wait for Docker socket to be genuinely connectable before running compose.
+        setProgress(38, stage: "Waiting for Docker…")
+        if !waitForDocker(seconds: 20) {
+            log("Docker not connectable after 20s")
+            showError("Docker did not start. Try relaunching.")
+            return
+        }
+        log("Docker connectable")
+
         setProgress(40, stage: "Starting Docker containers…")
-        // No --force-recreate: Colima persists container state across restarts.
-        // When Colima resumes, Docker brings containers back up with port mappings
-        // instantly. Force-recreate rebuilds network namespaces which takes 60+ seconds.
         let composeRc = shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml",
                                           "up", "-d"], timeout: 120)
         log("docker compose up rc=\(composeRc)")
