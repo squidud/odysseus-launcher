@@ -853,10 +853,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             }
         }
         setProgress(40, stage: "Starting Docker containers…")
-        // --force-recreate ensures containers are always fresh — prevents stale state
-        // from an interrupted previous shutdown leaving containers in a broken state.
+        // No --force-recreate: Colima persists container state across restarts.
+        // When Colima resumes, Docker brings containers back up with port mappings
+        // instantly. Force-recreate rebuilds network namespaces which takes 60+ seconds.
         let composeRc = shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml",
-                                          "up", "-d", "--force-recreate"], timeout: 120)
+                                          "up", "-d"], timeout: 120)
         log("docker compose up rc=\(composeRc)")
 
         setProgress(60, stage: "Starting local AI models…")
@@ -1104,11 +1105,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     func applicationWillTerminate(_ note: Notification) {
         stopLlamaServer()
-        // Stop containers first (keeps Colima alive so Docker socket is valid).
-        // Use a short timeout — macOS may force-kill us before these finish,
-        // which is why startup uses --force-recreate to handle leftover state.
-        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "down"],
-              timeout: 15)
+        // Don't run compose down — Colima persists container state across stop/start.
+        // Just stop Colima cleanly; Docker will resume containers on next launch instantly.
         shell(colimaBin, ["stop"], timeout: 20)
     }
 }
