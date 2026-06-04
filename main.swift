@@ -441,7 +441,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             "TMPDIR":      info["TMPDIR"] ?? "/tmp",
             "PATH":        "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "COLIMA_HOME": "\(home)/.colima",
-            "LIMA_HOME":   "\(home)/.lima",
             "DOCKER_HOST": "unix://\(home)/.colima/default/docker.sock",
         ]
     }()
@@ -803,9 +802,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     // Write colima.yaml with system-appropriate values — only when VM doesn't exist yet.
     func configureColima() {
-        // Colima's Lima instance is named "colima", not "default".
+        // Colima stores its Lima instance at $COLIMA_HOME/_lima/colima.
         // Once that directory exists, the VM has been created — CPU/memory can't change.
-        let limaColima = "\(NSHomeDirectory())/.lima/colima"
+        let limaColima = "\(NSHomeDirectory())/.colima/_lima/colima"
         if FileManager.default.fileExists(atPath: limaColima) { return }
 
         let yamlPath = "\(NSHomeDirectory())/.colima/default/colima.yaml"
