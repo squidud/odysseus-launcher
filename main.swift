@@ -903,17 +903,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
         setProgress(18, stage: "Checking Colima VM…")
         configureColima()
-        let colimaUp = colimaRunning()
-        log("colimaRunning: \(colimaUp)")
-
-        // If Colima says it's running but Docker socket is stale (SSH forwarding died),
-        // stop and restart to re-establish the tunnel.
-        if colimaUp && !dockerConnectable() {
-            log("Colima running but Docker socket stale — restarting")
-            setProgress(20, stage: "Reconnecting Colima…")
-            shell(colimaBin, ["stop"], timeout: 25)
-            Thread.sleep(forTimeInterval: 2)
-        }
+        log("colimaRunning: \(colimaRunning())")
 
         if !colimaRunning() {
             setProgress(22, stage: "Starting Colima VM…", detail: "This takes ~20 s on first launch")
@@ -1216,8 +1206,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     func applicationWillTerminate(_ note: Notification) {
         stopLlamaServer()
-        // Don't run compose down — Colima persists container state across stop/start.
-        // Just stop Colima cleanly; Docker will resume containers on next launch instantly.
+        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "down"], timeout: 30)
         shell(colimaBin, ["stop"], timeout: 20)
     }
 }
