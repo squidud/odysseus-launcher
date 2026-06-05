@@ -426,11 +426,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     var llamaProcess: Process?
     var isReconnecting = false
     var configWindow: ModelConfigWindow?
+    var navFailCount = 0
 
     let odysseusDir = NSHomeDirectory() + "/odysseus"
     let colimaBin   = "/opt/homebrew/bin/colima"
     let dockerBin   = "/opt/homebrew/bin/docker"
-    let targetURL   = URL(string: "http://localhost:7860")!
+    let targetURL   = URL(string: "http://127.0.0.1:7860")!
 
     let childEnv: [String: String] = {
         let info = ProcessInfo.processInfo.environment
@@ -717,6 +718,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         return p.terminationStatus
     }
 
+    // Like shell() but captures stderr and returns it alongside the exit code.
+    func shellCapture(_ bin: String, _ args: [String], timeout: TimeInterval = 120) -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: bin)
+        p.arguments = args
+        p.environment = childEnv
+        p.standardOutput = FileHandle.nullDevice
+        let pipe = Pipe()
+        p.standardError = pipe
+        try? p.run()
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
+        if p.isRunning { p.terminate() }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (p.terminationStatus, output)
+    }
+
+    // Show a blocking NSAlert on the main thread (safe to call from background threads).
+    // Returns true if the user chose Retry.
+    func startupAlert(_ title: String, _ detail: String) -> Bool {
+        var retry = false
+        let sem = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            let a = NSAlert()
+            a.messageText = title
+            a.informativeText = detail.isEmpty
+                ? "Check /tmp/odysseus-launch.log for details."
+                : detail + "\n\nCheck /tmp/odysseus-launch.log for details."
+            a.alertStyle = .critical
+            a.addButton(withTitle: "Retry")
+            a.addButton(withTitle: "Quit")
+            retry = (a.runModal() == .alertFirstButtonReturn)
+            sem.signal()
+        }
+        sem.wait()
+        return retry
+    }
+
     func log(_ msg: String) {
         let line = "\(Date()): \(msg)\n"
         if let data = line.data(using: .utf8),
@@ -896,9 +935,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         log("Docker connectable")
 
         setProgress(40, stage: "Starting Docker containers…")
-        let composeRc = shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml",
-                                          "up", "-d"], timeout: 120)
+        let (composeRc, composeErr) = shellCapture(dockerBin,
+            ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 120)
         log("docker compose up rc=\(composeRc)")
+        if composeRc != 0 {
+            let trimmed = composeErr.trimmingCharacters(in: .whitespacesAndNewlines)
+            log("compose stderr: \(trimmed)")
+            if startupAlert("Docker containers failed to start",
+                            trimmed.isEmpty ? "" : String(trimmed.suffix(400))) {
+                startAndLoad()
+            } else {
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+            return
+        }
 
         setProgress(60, stage: "Starting local AI models…")
         startLlamaServer()
@@ -917,9 +967,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             let pct = 60.0 + Double(i) * (39.0 / 180.0)
             setProgress(pct, stage: "Waiting for Odysseus…", detail: "\(i)s elapsed")
         }
-        log("timed out after 180s — loading anyway")
-        // Timed out — show anyway, web view will retry on navigation errors
-        DispatchQueue.main.async { self.revealWebView() }
+        log("timed out after 180s")
+        if startupAlert("Odysseus did not start in time",
+                        "The service took longer than 3 minutes. It may still be starting.") {
+            startAndLoad()
+        } else {
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 
     func revealWebView() {
@@ -992,16 +1046,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        navFailCount = 0
         hideLoadingView()
         self.webView.isHidden = false
     }
 
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.loadOdysseus() }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
+        navFailCount += 1
+        log("nav fail #\(navFailCount): \(error.localizedDescription)")
+        if navFailCount >= 5 {
+            navFailCount = 0
+            self.webView.isHidden = true
+            showError("Lost connection to Odysseus.")
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.loadOdysseus() }
+        }
     }
 
-    func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError _: Error) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.loadOdysseus() }
+    func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+        navFailCount += 1
+        log("nav fail #\(navFailCount): \(error.localizedDescription)")
+        if navFailCount >= 5 {
+            navFailCount = 0
+            self.webView.isHidden = true
+            showError("Lost connection to Odysseus.")
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.loadOdysseus() }
+        }
     }
 
     func webView(_ webView: WKWebView, createWebViewWith cfg: WKWebViewConfiguration,
