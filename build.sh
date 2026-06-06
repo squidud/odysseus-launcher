@@ -42,8 +42,8 @@ cat > "$APP/Contents/Info.plist" << 'EOF'
     <key>CFBundleExecutable</key><string>Odysseus</string>
     <key>CFBundleIdentifier</key><string>com.odysseus.launcher</string>
     <key>CFBundleName</key><string>Odysseus</string>
-    <key>CFBundleVersion</key><string>1.0</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleVersion</key><string>1.1</string>
+    <key>CFBundleShortVersionString</key><string>1.1</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
