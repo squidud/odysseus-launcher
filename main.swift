@@ -781,9 +781,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         p.waitUntilExit()
         let code = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
                           encoding: .utf8) ?? "000"
-        let ok = !code.isEmpty && code != "000"
-        log("isReachable → curl HTTP \(code) → \(ok)")
-        return ok
+        return !code.isEmpty && code != "000"
     }
 
     func colimaRunning() -> Bool {
@@ -795,30 +793,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         p.standardError  = FileHandle.nullDevice
         try? p.run(); p.waitUntilExit()
         return p.terminationStatus == 0
-    }
-
-    // Verify Docker socket is actually connectable, not just a stale file.
-    // Colima's SSH port forwarding can die while the VM stays "running".
-    func dockerConnectable() -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: dockerBin)
-        p.arguments = ["info"]
-        p.environment = childEnv
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError  = FileHandle.nullDevice
-        try? p.run()
-        let deadline = Date(timeIntervalSinceNow: 4)
-        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
-        if p.isRunning { p.terminate(); return false }
-        return p.terminationStatus == 0
-    }
-
-    func waitForDocker(seconds: Int = 15) -> Bool {
-        for _ in 0..<seconds {
-            if dockerConnectable() { return true }
-            Thread.sleep(forTimeInterval: 1)
-        }
-        return false
     }
 
     // MARK: Startup sequence
@@ -906,25 +880,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         log("colimaRunning: \(colimaRunning())")
 
         if !colimaRunning() {
-            setProgress(22, stage: "Starting Colima VM…", detail: "This takes ~20 s on first launch")
+            setProgress(25, stage: "Starting Colima VM…", detail: "This takes ~20 s on first launch")
             let rc = shell(colimaBin, ["start"], timeout: 180)
             log("colima start rc=\(rc)")
             if rc != 0 {
-                showError("Failed to start Colima VM.")
+                if startupAlert("Failed to start Colima VM",
+                                "Colima could not start the Docker VM.") {
+                    startAndLoad()
+                } else {
+                    DispatchQueue.main.async { NSApp.terminate(nil) }
+                }
                 return
             }
         }
 
-        // Wait for Docker socket to be genuinely connectable before running compose.
-        setProgress(38, stage: "Waiting for Docker…")
-        if !waitForDocker(seconds: 20) {
-            log("Docker not connectable after 20s")
-            showError("Docker did not start. Try relaunching.")
-            return
-        }
-        log("Docker connectable")
-
-        setProgress(40, stage: "Starting Docker containers…")
+        setProgress(45, stage: "Starting Docker containers…")
         let (composeRc, composeErr) = shellCapture(dockerBin,
             ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "up", "-d"], timeout: 120)
         log("docker compose up rc=\(composeRc)")
@@ -1026,11 +996,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
             if p.isRunning { p.interrupt() }
             llamaProcess = nil
         }
-        shell("/bin/zsh", ["-c",
-            "for port in 8085 8086 8087 8088 8089 8090 8091 8092; do " +
-            "pids=$(lsof -ti :$port -sTCP:LISTEN 2>/dev/null); " +
-            "[ -n \"$pids\" ] && kill -TERM $pids 2>/dev/null; done"
-        ], timeout: 5)
+        // Kill the model servers and helpers by process signature — never by port.
+        // Container ports (e.g. ntfy on 8091) are forwarded by Colima's shared SSH
+        // master; killing a listener by port would tear down that master and with it
+        // the forward for Odysseus on 7860. The bracket pattern is a regex that never
+        // matches this command's own argv, so pkill cannot kill its own shell.
+        shell("/usr/bin/pkill", ["-f", "[l]lama-server"], timeout: 5)
+        shell("/usr/bin/pkill", ["-f", "[j]son-proxy.py"], timeout: 5)
+        shell("/usr/bin/pkill", ["-f", "[i]mage-server.py"], timeout: 5)
     }
 
     // MARK: WKNavigationDelegate
@@ -1206,7 +1179,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     func applicationWillTerminate(_ note: Notification) {
         stopLlamaServer()
-        shell(dockerBin, ["compose", "-f", "\(odysseusDir)/docker-compose.yml", "down"], timeout: 30)
         shell(colimaBin, ["stop"], timeout: 20)
     }
 }
